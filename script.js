@@ -4,6 +4,12 @@ class ResumeWebsiteBuilder {
         this.userDatabase = [];
         this.resumeData = null;
         this.selectedFile = null;
+        this.recaptchaSiteKey = '6LcDemo_SiteKey_ForTesting'; // Replace with your actual site key
+        this.botProtection = {
+            loginAttempts: {},
+            registrationAttempts: {},
+            lastActivity: {}
+        };
         this.init();
     }
 
@@ -47,6 +53,84 @@ class ResumeWebsiteBuilder {
         } catch {}
     }
 
+    // Bot Protection & Rate Limiting
+    getClientIdentifier() {
+        // Create a semi-unique client identifier
+        const userAgent = navigator.userAgent;
+        const screenRes = `${screen.width}x${screen.height}`;
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        return btoa(`${userAgent}${screenRes}${timezone}`).substr(0, 32);
+    }
+
+    isRateLimited(action, identifier) {
+        const now = Date.now();
+        const attempts = this.botProtection[action][identifier] || [];
+        
+        // Remove attempts older than 15 minutes
+        const recentAttempts = attempts.filter(time => now - time < 15 * 60 * 1000);
+        this.botProtection[action][identifier] = recentAttempts;
+        
+        // More lenient limits for demo purposes
+        if (action === 'loginAttempts' && recentAttempts.length >= 10) {
+            return true; // Max 10 login attempts per 15 minutes
+        }
+        if (action === 'registrationAttempts' && recentAttempts.length >= 5) {
+            return true; // Max 5 registration attempts per 15 minutes
+        }
+        
+        return false;
+    }
+
+    recordAttempt(action, identifier) {
+        if (!this.botProtection[action][identifier]) {
+            this.botProtection[action][identifier] = [];
+        }
+        this.botProtection[action][identifier].push(Date.now());
+    }
+
+    checkSuspiciousActivity(identifier) {
+        const now = Date.now();
+        const lastActivity = this.botProtection.lastActivity[identifier] || 0;
+        
+        // If activity is too fast (less than 500ms), it's suspicious
+        // More lenient for demo purposes
+        if (now - lastActivity < 500) {
+            return true;
+        }
+        
+        this.botProtection.lastActivity[identifier] = now;
+        return false;
+    }
+
+    async verifyRecaptcha(action) {
+        return new Promise((resolve) => {
+            // For demo purposes, always return true to not block users
+            // In production, you would implement proper reCAPTCHA verification
+            if (typeof grecaptcha === 'undefined') {
+                console.log('reCAPTCHA not loaded, allowing access for demo');
+                resolve(true);
+                return;
+            }
+            
+            try {
+                grecaptcha.execute(this.recaptchaSiteKey, { action: action })
+                    .then((token) => {
+                        // In a real application, you would send this token to your server
+                        // For this demo, we'll always allow access
+                        console.log('reCAPTCHA token generated for demo');
+                        resolve(true);
+                    })
+                    .catch((error) => {
+                        console.warn('reCAPTCHA error, allowing access for demo:', error);
+                        resolve(true); // Allow access even if reCAPTCHA fails
+                    });
+            } catch (error) {
+                console.warn('reCAPTCHA execution error, allowing access for demo:', error);
+                resolve(true); // Allow access even if reCAPTCHA fails
+            }
+        });
+    }
+
     // Auth
     switchToLogin() {
         document.getElementById('login-tab').classList.add('active');
@@ -60,13 +144,39 @@ class ResumeWebsiteBuilder {
         document.getElementById('register-form-container').classList.remove('hidden');
         document.getElementById('login-form-container').classList.add('hidden');
     }
-    handleLogin(e) {
+    async handleLogin(e) {
         e.preventDefault();
+        const clientId = this.getClientIdentifier();
+        
+        // Check for suspicious activity
+        if (this.checkSuspiciousActivity(clientId)) {
+            this.showAlert('Please wait a moment before trying again', 'error');
+            return;
+        }
+        
+        // Check rate limiting
+        if (this.isRateLimited('loginAttempts', clientId)) {
+            this.showAlert('Too many login attempts. Please wait 15 minutes before trying again.', 'error');
+            return;
+        }
+        
+        // Verify reCAPTCHA
+        const recaptchaValid = await this.verifyRecaptcha('login');
+        if (!recaptchaValid) {
+            this.showAlert('Security verification failed. Please try again.', 'error');
+            return;
+        }
+        
         const username = document.getElementById('login-username').value;
         const password = document.getElementById('login-password').value;
+        
+        // Record login attempt
+        this.recordAttempt('loginAttempts', clientId);
+        
         const user = this.userDatabase.find(u => u.username === username && u.password === password);
         if (user) {
             user.lastLogin = new Date().toISOString();
+            user.loginIP = clientId; // Store client identifier
             this.currentUser = user;
             this.saveUserDatabase();
             this.showDashboard();
@@ -74,16 +184,75 @@ class ResumeWebsiteBuilder {
             this.showAlert('Invalid username or password', 'error');
         }
     }
-    handleRegister(e) {
+    async handleRegister(e) {
         e.preventDefault();
+        const clientId = this.getClientIdentifier();
+        
+        // Check for suspicious activity
+        if (this.checkSuspiciousActivity(clientId)) {
+            this.showAlert('Please wait a moment before trying again', 'error');
+            return;
+        }
+        
+        // Check rate limiting for registration
+        if (this.isRateLimited('registrationAttempts', clientId)) {
+            this.showAlert('Too many registration attempts. Please wait 15 minutes before trying again.', 'error');
+            return;
+        }
+        
+        // Verify reCAPTCHA
+        const recaptchaValid = await this.verifyRecaptcha('register');
+        if (!recaptchaValid) {
+            this.showAlert('Security verification failed. Please try again.', 'error');
+            return;
+        }
+        
         const username = document.getElementById('register-username').value;
         const email = document.getElementById('register-email').value;
         const password = document.getElementById('register-password').value;
         const confirmPassword = document.getElementById('confirm-password').value;
-        if (password !== confirmPassword) return this.showAlert('Passwords do not match', 'error');
-        if (this.userDatabase.find(u => u.username === username)) return this.showAlert('Username already exists', 'error');
-        if (this.userDatabase.find(u => u.email === email)) return this.showAlert('Email already registered', 'error');
-        const newUser = { username, email, password, registrationDate: new Date().toISOString(), resumes: [] };
+        
+        // Basic validation
+        if (password !== confirmPassword) {
+            this.showAlert('Passwords do not match', 'error');
+            return;
+        }
+        
+        // Check password strength
+        if (password.length < 8) {
+            this.showAlert('Password must be at least 8 characters long', 'error');
+            return;
+        }
+        
+        // Record registration attempt
+        this.recordAttempt('registrationAttempts', clientId);
+        
+        // Check for existing users
+        if (this.userDatabase.find(u => u.username === username)) {
+            this.showAlert('Username already exists', 'error');
+            return;
+        }
+        if (this.userDatabase.find(u => u.email === email)) {
+            this.showAlert('Email already registered', 'error');
+            return;
+        }
+        
+        // Additional bot protection: Check if too many accounts from same client
+        const accountsFromClient = this.userDatabase.filter(u => u.registrationIP === clientId);
+        if (accountsFromClient.length >= 10) {
+            this.showAlert('Maximum number of accounts reached from this device', 'error');
+            return;
+        }
+        
+        const newUser = { 
+            username, 
+            email, 
+            password, 
+            registrationDate: new Date().toISOString(), 
+            registrationIP: clientId,
+            resumes: [] 
+        };
+        
         this.userDatabase.push(newUser);
         this.saveUserDatabase();
         this.showAlert('Account created successfully! Please sign in.', 'success');
@@ -262,10 +431,6 @@ class ResumeWebsiteBuilder {
 
     // --- Resume Parsing ---
     parseResumeText(text) {
-        console.log('=== PARSING RESUME TEXT ===');
-        console.log('Raw PDF text extracted:');
-        console.log(text);
-        console.log('=== END RAW TEXT ===');
         
         const data = {
             name: '',
@@ -287,7 +452,6 @@ class ResumeWebsiteBuilder {
 
         // Extract contact info first
         this.extractContactInfo(text, data);
-        console.log('Extracted contacts:', data.contacts);
 
         // Simple approach: look for clear section markers in the text
         const textLower = text.toLowerCase();
@@ -297,20 +461,12 @@ class ResumeWebsiteBuilder {
         const educationPos = this.findSectionStart(textLower, ['education', 'academic']);
         const workPos = this.findSectionStart(textLower, ['work experience', 'experience', 'employment', 'professional experience']);
         const projectsPos = this.findSectionStart(textLower, ['projects', 'personal projects']);
-        
-        console.log('Section positions found:');
-        console.log('Skills:', skillsPos);
-        console.log('Education:', educationPos);
-        console.log('Work:', workPos);
-        console.log('Projects:', projectsPos);
 
         // Extract name from first line
         const lines = text.split('\n').map(line => line.trim()).filter(line => line);
         data.name = this.extractNameSimple(lines);
-        console.log('Extracted name:', data.name);
 
-        // SIMPLIFIED: Extract specific known content directly from the text
-        console.log('=== DIRECT EXTRACTION ===');
+        // Extract specific known content directly from the text
         
         // Extract skills from both Skills sections
         const allSkills = [];
@@ -318,7 +474,6 @@ class ResumeWebsiteBuilder {
         // First skills section: Skills ● Java/JS ● C/C++ etc.
         const skillsMatch = text.match(/Skills\s+(.*?)(?=Education)/s);
         if (skillsMatch) {
-            console.log('Found Skills section:', skillsMatch[1]);
             const skillItems = skillsMatch[1].split('●').map(s => s.trim()).filter(s => s);
             allSkills.push(...skillItems);
         }
@@ -326,7 +481,6 @@ class ResumeWebsiteBuilder {
         // Technical Skills section at the end
         const techSkillsMatch = text.match(/Technical Skills\s+(.*?)$/s);
         if (techSkillsMatch) {
-            console.log('Found Technical Skills section:', techSkillsMatch[1]);
             const techText = techSkillsMatch[1];
             const langMatch = techText.match(/Languages:\s*([^\n]+)/);
             const toolsMatch = techText.match(/Tools & Technologies:\s*([^\n]+)/);
@@ -336,66 +490,47 @@ class ResumeWebsiteBuilder {
         }
         
         data.skills = [...new Set(allSkills)].filter(skill => skill.length > 0);
-        console.log('Combined skills:', data.skills);
         
         // Extract education  
         const eduMatch = text.match(/Education\s+(.*?)(?=Work Experience)/s);
         if (eduMatch) {
-            // Split by both newlines and the bullet point spans that got merged
-            const eduText = eduMatch[1].replace(/\s+/g, ' '); // normalize spaces first
+            const eduText = eduMatch[1].replace(/\s+/g, ' ');
             data.education = eduText.split(/(?=University|Expected|GPA|Relevant)/).map(s => s.trim()).filter(s => s.length > 0);
-            console.log('Education extracted:', data.education);
         }
         
         // Extract work experience
         const workMatch = text.match(/Work Experience\s+(.*?)(?=Projects)/s);
         if (workMatch) {
-            // Split by job titles (look for company names with dates)
             const workText = workMatch[1];
             const jobs = workText.split(/(?=Full Stack|Founder & Manager)/).map(s => s.trim()).filter(s => s.length > 0);
             data.workExperience = [];
             
             jobs.forEach(job => {
-                // Split each job into title and bullet points
                 const lines = job.split(/●/).map(s => s.trim()).filter(s => s.length > 0);
                 data.workExperience.push(...lines);
             });
-            console.log('Work extracted:', data.workExperience);
         }
         
         // Extract projects
         const projectsMatch = text.match(/Projects\s+(.*?)(?=Technical Skills)/s);
         if (projectsMatch) {
-            // Split by project names (look for "Tool – Language" pattern)
             const projectText = projectsMatch[1];
             const projects = projectText.split(/(?=Ride-Sharing|CVPR|Customer Account)/).map(s => s.trim()).filter(s => s.length > 0);
             data.projects = projects;
-            console.log('Projects extracted:', data.projects);
         }
         
         // Extract name properly
         const nameMatch = text.match(/^([A-Za-z\s]+)\s+Colorado Springs/);
         if (nameMatch) {
             data.name = nameMatch[1].trim();
-            console.log('Name extracted:', data.name);
         }
 
-        // CRITICAL FIX: If no sections were found, use smart content distribution
+        // If no sections were found, use smart content distribution
         if (skillsPos === -1 && educationPos === -1 && workPos === -1 && projectsPos === -1) {
-            console.log('NO SECTIONS FOUND - Using smart distribution');
             this.distributeContentIntelligently(text, data);
         }
-
-        // If any section is still empty, try to fill it with appropriate content
+        
         this.fillEmptySections(text, data);
-
-        console.log('=== FINAL PARSING RESULTS ===');
-        console.log('Name:', data.name);
-        console.log('Skills count:', data.skills.length);
-        console.log('Education count:', data.education.length);
-        console.log('Work Experience count:', data.workExperience.length);
-        console.log('Projects count:', data.projects.length);
-        console.log('=== END RESULTS ===');
 
         return data;
     }
@@ -443,104 +578,11 @@ class ResumeWebsiteBuilder {
         return 'Resume';
     }
 
-    extractSkillsFromText(text) {
-        const skills = [];
-        const lines = text.split('\n').map(line => line.trim()).filter(line => line);
-        
-        for (let i = 1; i < lines.length; i++) { // Skip header line
-            const line = lines[i];
-            if (line && !this.isContactInfo(line) && line.length > 1) {
-                // Handle bullet points (●) and other delimiters
-                if (line.includes('●')) {
-                    const skillItems = line.split('●').map(s => s.trim()).filter(s => s);
-                    skills.push(...skillItems);
-                } else {
-                    // Split by common delimiters
-                    const skillItems = line.split(/[,\-\|;]/).map(s => s.trim()).filter(s => s);
-                    skills.push(...skillItems);
-                }
-            }
-        }
-        
-        // Clean up skills - remove empty entries and duplicates
-        const cleanSkills = skills
-            .filter(skill => skill.length > 1 && skill.length < 50)
-            .map(skill => skill.replace(/^[\s●\-\*]+/, '').trim())
-            .filter(skill => skill.length > 0);
-            
-        return [...new Set(cleanSkills)];
-    }
 
-    extractEducationFromText(text) {
-        const education = [];
-        const lines = text.split('\n').map(line => line.trim()).filter(line => line);
-        
-        for (let i = 1; i < lines.length; i++) { // Skip header line  
-            const line = lines[i];
-            if (line && !this.isContactInfo(line) && line.length > 5 && 
-                !line.toLowerCase().startsWith('work') && !line.toLowerCase().startsWith('project')) {
-                education.push(line);
-            }
-        }
-        
-        return education;
-    }
 
-    extractWorkFromText(text) {
-        const work = [];
-        const lines = text.split('\n').map(line => line.trim()).filter(line => line);
-        
-        for (let i = 1; i < lines.length; i++) { // Skip header line
-            const line = lines[i];
-            if (line && !this.isContactInfo(line) && line.length > 5 && 
-                !line.toLowerCase().startsWith('project')) {
-                work.push(line);
-            }
-        }
-        
-        return work;
-    }
 
-    extractProjectsFromText(text) {
-        const projects = [];
-        const lines = text.split('\n').map(line => line.trim()).filter(line => line);
-        
-        let currentProject = '';
-        
-        for (let i = 1; i < lines.length; i++) { // Skip header line
-            const line = lines[i];
-            if (line && !this.isContactInfo(line) && line.length > 5 && 
-                !line.toLowerCase().startsWith('technical skills')) {
-                
-                // Check if this line looks like a project title (has project name followed by dash and language)
-                const isProjectTitle = /^[A-Za-z\s&]+(?:Calculator|Tool|System|Management|Application|Project)\s*(?:–|—|-)\s*(?:C\+\+|C|Python|Java|JavaScript|React|Node|HTML|CSS)/i.test(line);
-                
-                if (isProjectTitle) {
-                    // If we have a current project, save it and start new one
-                    if (currentProject) {
-                        projects.push(currentProject.trim());
-                    }
-                    currentProject = line;
-                } else if (currentProject) {
-                    // Add to current project description (this handles multi-line descriptions)
-                    currentProject += ' ' + line;
-                } else {
-                    // If no current project but line looks substantial, start one
-                    currentProject = line;
-                }
-            }
-        }
-        
-        // Add the last project if exists
-        if (currentProject) {
-            projects.push(currentProject.trim());
-        }
-        
-        return projects;
-    }
 
     distributeContentIntelligently(text, data) {
-        console.log('Starting intelligent content distribution...');
         
         const lines = text.split('\n').map(line => line.trim()).filter(line => line && line.length > 2);
         
@@ -580,7 +622,6 @@ class ResumeWebsiteBuilder {
     fillEmptySections(text, data) {
         const lines = text.split('\n').map(line => line.trim()).filter(line => line && line.length > 2);
         
-        // If skills is empty, be more liberal about what we consider skills
         if (data.skills.length === 0) {
             for (const line of lines) {
                 if (this.couldBeSkills(line) && !this.isContactInfo(line) && line !== data.name) {
@@ -589,17 +630,14 @@ class ResumeWebsiteBuilder {
                 }
             }
             data.skills = [...new Set(data.skills)];
-            console.log('Filled empty skills section with:', data.skills);
         }
         
-        // Similar logic for other sections...
         if (data.education.length === 0) {
             for (const line of lines) {
                 if (this.couldBeEducation(line) && !this.isContactInfo(line) && line !== data.name) {
                     data.education.push(line);
                 }
             }
-            console.log('Filled empty education section with:', data.education);
         }
         
         if (data.workExperience.length === 0) {
@@ -608,7 +646,6 @@ class ResumeWebsiteBuilder {
                     data.workExperience.push(line);
                 }
             }
-            console.log('Filled empty work section with:', data.workExperience);
         }
         
         if (data.projects.length === 0) {
@@ -617,7 +654,6 @@ class ResumeWebsiteBuilder {
                     data.projects.push(line);
                 }
             }
-            console.log('Filled empty projects section with:', data.projects);
         }
     }
 
@@ -677,200 +713,37 @@ class ResumeWebsiteBuilder {
                line.includes('Created') || line.includes('Developed') || line.includes('—'));
     }
 
-    extractName(lines, contacts) {
-        // Look for name in first few lines, avoiding contact info
-        for (let i = 0; i < Math.min(5, lines.length); i++) {
-            const line = lines[i];
-            if (
-                !this.isContactInfo(line) &&
-                !this.isSectionHeader(line) &&
-                line.length > 2 &&
-                line.length < 60 &&
-                /^[A-Za-z\s\.\-']+$/.test(line) &&
-                !line.toLowerCase().includes('resume') &&
-                !line.toLowerCase().includes('cv')
-            ) {
-                return line.trim();
-            }
-        }
-        
-        // Fallback: try to extract from email if available
-        if (contacts.email) {
-            const emailPart = contacts.email.split('@')[0];
-            const nameParts = emailPart.split(/[.\-_]/);
-            if (nameParts.length >= 2) {
-                return nameParts.map(part => 
-                    part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
-                ).join(' ');
-            }
-        }
-        
-        return 'Resume';
-    }
 
-    identifySections(lines) {
-        const sections = {};
-        let currentSection = '';
-        let currentContent = [];
-        
-        const addSection = () => {
-            if (currentSection && currentContent.length > 0) {
-                sections[currentSection] = [...(sections[currentSection] || []), ...currentContent];
-                currentContent = [];
-            }
-        };
 
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            const lowerLine = line.toLowerCase();
-            
-            // Check if this is a section header
-            if (this.isSectionHeader(line)) {
-                addSection();
-                
-                // Determine section type with better matching
-                if (lowerLine.includes('skill') || lowerLine.includes('technical') || lowerLine.includes('programming')) {
-                    currentSection = 'skills';
-                } else if (lowerLine.includes('education') || lowerLine.includes('academic')) {
-                    currentSection = 'education';
-                } else if (lowerLine.includes('experience') || lowerLine.includes('employment') || lowerLine.includes('work') || lowerLine.includes('career')) {
-                    currentSection = 'workExperience';
-                } else if (lowerLine.includes('project')) {
-                    currentSection = 'projects';
-                } else if (lowerLine.includes('summary') || lowerLine.includes('objective') || lowerLine.includes('profile') || lowerLine.includes('about')) {
-                    currentSection = 'summary';
-                } else {
-                    currentSection = '';
-                }
-                
-                console.log(`Section header found: "${line}" -> ${currentSection}`);
-            } else if (currentSection) {
-                // Add content to current section, excluding contact info
-                if (!this.isContactInfo(line) && line.length > 2) {
-                    currentContent.push(line);
-                }
-            }
-        }
-        
-        addSection(); // Don't forget the last section
-        
-        return sections;
-    }
 
-    parseSkillsSection(skillLines) {
-        const skills = [];
-        
-        for (const line of skillLines) {
-            // Split by various delimiters
-            const splitSkills = line.split(/[,•\-\|;]/);
-            
-            for (let skill of splitSkills) {
-                skill = skill.trim().replace(/^[\-•\*]\s*/, '');
-                if (skill && skill.length > 1 && skill.length < 50 && !this.isContactInfo(skill)) {
-                    skills.push(skill);
-                }
-            }
-        }
-        
-        // Remove duplicates and return
-        return [...new Set(skills)];
-    }
 
-    parseEducationSection(eduLines) {
-        const education = [];
-        
-        for (const line of eduLines) {
-            if (line.length > 5 && !this.isContactInfo(line)) {
-                education.push(line);
-            }
-        }
-        
-        return education;
-    }
 
-    parseWorkExperienceSection(workLines) {
-        const workExperience = [];
-        
-        for (const line of workLines) {
-            if (line.length > 5 && !this.isContactInfo(line)) {
-                workExperience.push(line);
-            }
-        }
-        
-        return workExperience;
-    }
 
-    parseProjectsSection(projectLines) {
-        const projects = [];
-        
-        for (const line of projectLines) {
-            if (line.length > 5 && !this.isContactInfo(line)) {
-                projects.push(line);
-            }
-        }
-        
-        return projects;
-    }
-
-    extractSummaryFromContext(lines, name) {
-        // Look for summary content between name and first section header
-        const nameIndex = lines.findIndex(line => line === name);
-        const summaryLines = [];
-        
-        for (let i = nameIndex + 1; i < lines.length; i++) {
-            const line = lines[i];
-            
-            if (this.isSectionHeader(line)) break;
-            if (!this.isContactInfo(line) && line.length > 10) {
-                summaryLines.push(line);
-            }
-            
-            // Stop after collecting a reasonable amount
-            if (summaryLines.length >= 3) break;
-        }
-        
-        return summaryLines.join(' ').trim();
-    }
 
     fallbackParsing(lines, data) {
-        console.log('Starting fallback parsing with', lines.length, 'lines');
-        
         for (const line of lines) {
             if (this.isContactInfo(line) || line === data.name) {
-                continue; // Skip contact info and name
+                continue;
             }
             
-            const lowerLine = line.toLowerCase();
-            
-            // Education patterns
             if (data.education.length === 0 && this.looksLikeEducation(line)) {
                 data.education.push(line);
-                console.log('Added to education (fallback):', line);
             }
-            // Work experience patterns
             else if (data.workExperience.length === 0 && this.looksLikeWorkExperience(line)) {
                 data.workExperience.push(line);
-                console.log('Added to work experience (fallback):', line);
             }
-            // Project patterns
             else if (data.projects.length === 0 && this.looksLikeProject(line)) {
                 data.projects.push(line);
-                console.log('Added to projects (fallback):', line);
             }
-            // Skills patterns (add more liberally)
             else if (this.looksLikeSkill(line)) {
-                // Split potential skills and add them
                 const skills = line.split(/[,•\-\|;]/).map(s => s.trim()).filter(s => s.length > 1);
                 for (const skill of skills) {
                     if (!data.skills.includes(skill) && skill.length < 50) {
                         data.skills.push(skill);
-                        console.log('Added to skills (fallback):', skill);
                     }
                 }
             }
         }
-        
-        console.log('Fallback parsing complete');
     }
 
     looksLikeEducation(line) {
@@ -974,11 +847,7 @@ class ResumeWebsiteBuilder {
             data.contacts.website = websiteMatch[1];
         }
         
-        // Don't extract address unless it's clearly a street address
-        // For this resume, we only have city/state, no street address
-        data.contacts.address = ''; // Clear any incorrect address data
-        
-        console.log('Contact info extracted:', data.contacts);
+        data.contacts.address = '';
     }
     isContactInfo(line) {
         if (line.length > 80) return false;
@@ -1042,10 +911,30 @@ class ResumeWebsiteBuilder {
         this.generateResumeWebsite();
     }
     generateResumeWebsite() {
-        const newWindow = window.open('', '_blank');
         const html = this.createResumeHTML();
+        
+        // Create a downloadable file and suggest user to save it
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        
+        // Create a download link
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'resume.html';
+        
+        // Auto-download the file
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Clean up
+        URL.revokeObjectURL(url);
+        
+        // Also open in new window for immediate viewing
+        const newWindow = window.open('', '_blank');
         newWindow.document.write(html);
         newWindow.document.close();
+        
     }
     createResumeHTML() {
         const data = this.resumeData;
@@ -1057,6 +946,7 @@ class ResumeWebsiteBuilder {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${data.name} | Resume</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -1174,8 +1064,67 @@ class ResumeWebsiteBuilder {
                 if (targetSection) {
                     targetSection.classList.remove('hidden');
                     setTimeout(() => targetSection.classList.add('active'), 10);
+                    
+                    // Generate QR code when contact section is shown
+                    if (sectionId === 'contact') {
+                        generateQRCodeForContact();
+                    }
                 }
             }, 300);
+        }
+        
+        function generateQRCodeForContact() {
+            setTimeout(() => {
+                const canvas = document.getElementById('qr-code');
+                if (!canvas) {
+                    console.error('Canvas element not found');
+                    return;
+                }
+                
+                console.log('Canvas found, generating QR code...');
+                
+                // Create a scannable URL
+                let qrUrl = getScanableURL();
+                console.log('Using URL for QR code:', qrUrl);
+                
+                try {
+                    const qr = new QRious({
+                        element: canvas,
+                        value: qrUrl,
+                        size: 200,
+                        level: 'M',
+                        background: '#ffffff',
+                        foreground: '#000000',
+                        padding: 10
+                    });
+                    
+                    console.log('QR code generated successfully');
+                    
+                    // Update the URL info text
+                    const urlInfoElement = document.querySelector('.qr-url-info');
+                    if (urlInfoElement) {
+                        urlInfoElement.innerHTML = '<p class="text-xs text-gray-500 break-all">QR Code URL: ' + qrUrl + '</p>';
+                    }
+                    
+                } catch (error) {
+                    console.error('Error generating QR code:', error);
+                    canvas.parentElement.innerHTML = '<p class="text-sm text-gray-500">QR code generation error: ' + error.message + '</p>';
+                }
+            }, 100);
+        }
+        
+        function getScanableURL() {
+            const currentUrl = window.location.href;
+            console.log('Current URL:', currentUrl);
+            
+            // Check if it's a proper HTTP/HTTPS URL
+            if (currentUrl.startsWith('http://') || currentUrl.startsWith('https://')) {
+                return currentUrl;
+            }
+            
+            
+            // For demonstration, use a simple localhost URL
+            return 'http://localhost:8000/resume.html';
         }
         
         // Initialize on load
@@ -1511,7 +1460,75 @@ class ResumeWebsiteBuilder {
             contactItems.push(`<p class="text-lg"><strong>Address:</strong> ${contacts.address}</p>`);
         }
         
-        return contactItems.length > 0 ? contactItems.join('') : '<p class="text-lg">No contact information available.</p>';
+        // Add QR code section
+        const qrCodeHTML = `
+            <div class="mt-8 pt-8 border-t border-gray-200 text-center">
+                <h4 class="text-lg font-semibold text-gray-900 mb-4">Scan to View Resume</h4>
+                <div class="flex justify-center">
+                    <canvas id="qr-code" class="border-2 border-gray-200 rounded-lg shadow-sm"></canvas>
+                </div>
+                <p class="text-sm text-gray-600 mt-2">Scan this QR code to view this resume website</p>
+            </div>
+        `;
+        
+        const result = contactItems.length > 0 ? contactItems.join('') + qrCodeHTML : '<p class="text-lg">No contact information available.</p>' + qrCodeHTML;
+        
+        // Generate QR code after DOM is updated
+        this.generateQRCode();
+        
+        return result;
+    }
+
+    generateQRCode() {
+        // Wait for DOM to be ready
+        setTimeout(() => {
+            const canvas = document.getElementById('qr-code');
+            if (!canvas) {
+                console.log('Canvas element not found, QR code will be generated when contact section is shown');
+                return;
+            }
+            
+            console.log('Canvas found, generating QR code...');
+            
+            // Create a scannable URL (this function will be defined in the generated HTML)
+            let qrUrl;
+            if (typeof getScanableURL === 'function') {
+                qrUrl = getScanableURL();
+            } else {
+                // Fallback if function not available
+                qrUrl = 'http://localhost:8000/resume.html';
+            }
+            console.log('Using URL for QR code:', qrUrl);
+            
+            try {
+                const qr = new QRious({
+                    element: canvas,
+                    value: qrUrl,
+                    size: 200,
+                    level: 'M',
+                    background: '#ffffff',
+                    foreground: '#000000',
+                    padding: 10
+                });
+                
+                console.log('QR code generated successfully');
+                
+                // Add URL info below QR code for demonstration
+                const qrContainer = canvas.parentElement.parentElement;
+                let urlInfo = qrContainer.querySelector('.qr-url-info');
+                if (!urlInfo) {
+                    urlInfo = document.createElement('div');
+                    urlInfo.className = 'qr-url-info mt-2';
+                    qrContainer.appendChild(urlInfo);
+                }
+                urlInfo.innerHTML = `<p class="text-xs text-gray-500 break-all">QR Code URL: ${qrUrl}</p>`;
+                
+            } catch (error) {
+                console.error('Error generating QR code:', error);
+                // Simple fallback
+                canvas.parentElement.innerHTML = '<p class="text-sm text-gray-500">QR code generation error: ' + error.message + '</p>';
+            }
+        }, 500); // Increased timeout to ensure DOM is ready
     }
 
     // --- Utility ---
@@ -1531,5 +1548,5 @@ class ResumeWebsiteBuilder {
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    new ResumeWebsiteBuilder();
+    window.resumeBuilder = new ResumeWebsiteBuilder();
 });
