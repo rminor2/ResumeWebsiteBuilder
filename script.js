@@ -36,6 +36,8 @@ class ResumeWebsiteBuilder {
         fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
         document.getElementById('process-btn').addEventListener('click', () => this.processResume());
         document.getElementById('view-website-btn').addEventListener('click', () => this.viewResumeWebsite());
+        const tryDemoBtn = document.getElementById('try-demo-btn');
+        if (tryDemoBtn) tryDemoBtn.addEventListener('click', () => this.loginAsDemo());
     }
 
     // User DB
@@ -269,6 +271,7 @@ class ResumeWebsiteBuilder {
     // Dashboard
     showDashboard() {
         document.getElementById('user-name').textContent = this.currentUser.username;
+        this.renderDemoResumes();
         this.renderResumeCards();
         this.showSection('dashboard-section');
         this.hideSection('auth-section');
@@ -311,6 +314,191 @@ class ResumeWebsiteBuilder {
             container.appendChild(card);
         });
     }
+
+    // ---------- Demo mode ----------
+    // One-click guest login so visitors can try the builder without signing up.
+    loginAsDemo() {
+        this.currentUser = { username: 'Demo User', email: 'demo@example.com', resumes: [], isDemo: true };
+        this.showDashboard();
+        this.showAlert('You are exploring the demo. Pick a sample résumé below to build a website instantly!', 'info');
+    }
+
+    renderDemoResumes() {
+        const container = document.getElementById('demo-resume-cards');
+        if (!container) return;
+        const demos = this.getDemoResumes();
+        container.innerHTML = '';
+        demos.forEach((demo, index) => {
+            const card = document.createElement('div');
+            card.className = 'resume-card demo-resume-card';
+            card.innerHTML = `
+                <div class="resume-card-content">
+                    <div class="demo-resume-emoji">${demo.emoji}</div>
+                    <h4>${demo.data.name}</h4>
+                    <p>${demo.role}</p>
+                </div>
+                <div class="resume-card-actions">
+                    <button class="primary-button demo-build-btn" data-index="${index}">Build website →</button>
+                </div>
+            `;
+            card.querySelector('.demo-build-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.useDemoResume(index);
+            });
+            container.appendChild(card);
+        });
+    }
+
+    useDemoResume(index) {
+        const demo = this.getDemoResumes()[index];
+        if (!demo) return;
+        // Deep clone so the generated template can never mutate the source data.
+        this.resumeData = JSON.parse(JSON.stringify(demo.data));
+        // Record it on the in-memory demo user so it also shows under "Your Resume Websites".
+        if (this.currentUser) {
+            if (!this.currentUser.resumes) this.currentUser.resumes = [];
+            this.currentUser.resumes.push({
+                name: `${demo.data.name} (demo).pdf`,
+                uploadDate: new Date().toISOString(),
+                data: this.resumeData
+            });
+            this.renderResumeCards();
+        }
+        this.generateResumeWebsite();
+    }
+
+    getDemoResumes() {
+        return [
+            {
+                emoji: '💻', role: 'Software Engineer',
+                data: {
+                    name: 'Alex Carter',
+                    summary: 'Full-stack software engineer focused on building reliable, scalable web applications and developer tooling.',
+                    skills: ['JavaScript', 'TypeScript', 'Python', 'React', 'Node', 'PostgreSQL', 'AWS', 'Docker', 'Git', 'Problem Solving', 'Communication'],
+                    education: ['B.S. in Computer Science, University of Washington — GPA: 3.7', 'Graduated June 2019', 'Relevant coursework: Data Structures, Distributed Systems, Databases'],
+                    workExperience: [
+                        'Senior Software Engineer — Stripe (2021–Present)',
+                        'Led the rebuild of the internal payments dashboard used by 400+ employees.',
+                        'Mentored four junior engineers and ran weekly code-review sessions.',
+                        'Software Engineer — Shopify (2019–2021)',
+                        'Built and shipped REST APIs powering the merchant analytics product.',
+                        'Cut page-load time 40% by introducing server-side caching.'
+                    ],
+                    projects: [
+                        'Realtime Chat App – JavaScript. Developed a full-stack messaging platform with presence and typing indicators. Built with React, Node, and PostgreSQL. Implemented end-to-end message delivery and integrated WebSocket sync.',
+                        'DevMetrics Dashboard – Python. Developed a data analytics tool that visualizes CI pipeline health. Built with Python and Docker. Designed an alerting system and integrated GitHub webhooks.'
+                    ],
+                    contacts: { email: 'alex.carter@example.com', phone: '(206) 555-0142', city: 'Seattle, WA', linkedin: 'linkedin.com/in/alexcarter', github: 'github.com/alexcarter', website: 'alexcarter.dev', address: '' }
+                }
+            },
+            {
+                emoji: '📊', role: 'Data Scientist',
+                data: {
+                    name: 'Priya Sharma',
+                    summary: 'Data scientist specializing in machine learning, experimentation, and turning messy data into clear business decisions.',
+                    skills: ['Python', 'SQL', 'pandas', 'PostgreSQL', 'AWS', 'Excel', 'Communication', 'Problem Solving', 'Leadership'],
+                    education: ['M.S. in Data Science, New York University — GPA: 3.9', 'Graduated May 2020', 'Relevant coursework: Machine Learning, Statistics, Big Data Systems'],
+                    workExperience: [
+                        'Data Scientist — Spotify (2020–Present)',
+                        'Built churn-prediction models that improved retention campaign ROI by 18%.',
+                        'Designed an A/B testing framework adopted across three product teams.',
+                        'Data Analyst Intern — Nielsen (Summer 2019)',
+                        'Automated weekly reporting with Python, saving 10 analyst hours per week.'
+                    ],
+                    projects: [
+                        'Customer Churn Model – Python. Developed a machine-learning data analytics pipeline to predict subscriber churn. Built with Python, pandas, and PostgreSQL. Implemented feature engineering and designed model-evaluation dashboards.',
+                        'Sales Forecast Tool – Python. Developed a forecasting application for retail demand. Built with Python and Excel. Integrated seasonal trend detection and enabled scenario planning.'
+                    ],
+                    contacts: { email: 'priya.sharma@example.com', phone: '(212) 555-0188', city: 'New York, NY', linkedin: 'linkedin.com/in/priyasharma', github: 'github.com/priyasharma', website: '', address: '' }
+                }
+            },
+            {
+                emoji: '🎨', role: 'Product Designer',
+                data: {
+                    name: 'Jordan Lee',
+                    summary: 'Product designer crafting clean, accessible interfaces with a focus on user research and design systems.',
+                    skills: ['Figma', 'Prototyping', 'User Research', 'HTML', 'CSS', 'Design Systems', 'Accessibility', 'Communication', 'Teamwork'],
+                    education: ['B.F.A. in Interaction Design, Rhode Island School of Design — GPA: 3.8', 'Graduated May 2018', 'Relevant coursework: Human-Computer Interaction, Typography, Visual Design'],
+                    workExperience: [
+                        'Senior Product Designer — Airbnb (2021–Present)',
+                        'Led the redesign of the host onboarding flow, lifting completion 22%.',
+                        'Built and maintained the team\'s component design system in Figma.',
+                        'Product Designer — Mailchimp (2018–2021)',
+                        'Designed email-campaign tooling used by millions of small businesses.'
+                    ],
+                    projects: [
+                        'Accessible Banking App – Figma. Developed a mobile banking experience meeting WCAG AA standards. Built with Figma prototypes. Implemented an accessible color system and integrated usability testing with 20 participants.',
+                        'Design System Kit – CSS. Developed a reusable web component library. Built with HTML and CSS. Designed tokens and enabled consistent theming across products.'
+                    ],
+                    contacts: { email: 'jordan.lee@example.com', phone: '(401) 555-0173', city: 'Providence, RI', linkedin: 'linkedin.com/in/jordanlee', github: '', website: 'jordanlee.design', address: '' }
+                }
+            },
+            {
+                emoji: '📣', role: 'Marketing Manager',
+                data: {
+                    name: 'Taylor Brooks',
+                    summary: 'Marketing manager driving growth through data-informed campaigns, content strategy, and brand storytelling.',
+                    skills: ['SEO', 'Content Strategy', 'Google Analytics', 'Excel', 'Communication', 'Leadership', 'Project Management', 'Organization'],
+                    education: ['B.A. in Marketing, University of Texas at Austin — GPA: 3.6', 'Graduated May 2017', 'Relevant coursework: Consumer Behavior, Digital Marketing, Analytics'],
+                    workExperience: [
+                        'Marketing Manager — HelloFresh (2020–Present)',
+                        'Managed a $2M paid-media budget and grew qualified leads 35% year over year.',
+                        'Led a team of five across content, email, and social channels.',
+                        'Marketing Coordinator — Warby Parker (2017–2020)',
+                        'Launched a referral program that drove 12,000 new sign-ups in six months.'
+                    ],
+                    projects: [
+                        'Brand Relaunch Campaign – Strategy. Developed an integrated marketing campaign across web and social. Built with Google Analytics and Excel. Designed messaging frameworks and enabled multi-channel attribution.',
+                        'SEO Content Engine – Web. Developed a content strategy that doubled organic web traffic. Implemented keyword-research workflows and integrated performance dashboards.'
+                    ],
+                    contacts: { email: 'taylor.brooks@example.com', phone: '(512) 555-0119', city: 'Austin, TX', linkedin: 'linkedin.com/in/taylorbrooks', github: '', website: '', address: '' }
+                }
+            },
+            {
+                emoji: '🩺', role: 'Registered Nurse',
+                data: {
+                    name: 'Morgan Davis',
+                    summary: 'Compassionate registered nurse with experience in emergency and critical care, committed to patient-centered care.',
+                    skills: ['Patient Care', 'Critical Care', 'EMR / Epic', 'Triage', 'Communication', 'Teamwork', 'Leadership', 'Organization'],
+                    education: ['B.S. in Nursing, Johns Hopkins University — GPA: 3.9', 'Graduated May 2016', 'Relevant coursework: Pharmacology, Anatomy, Critical Care Nursing'],
+                    workExperience: [
+                        'Registered Nurse, Emergency Department — Massachusetts General Hospital (2019–Present)',
+                        'Provided care for up to 12 patients per shift in a Level I trauma center.',
+                        'Precepted new-graduate nurses and led monthly patient-safety huddles.',
+                        'Registered Nurse, ICU — Cleveland Clinic (2016–2019)',
+                        'Managed post-operative critical care and coordinated with multidisciplinary teams.'
+                    ],
+                    projects: [
+                        'Patient Handoff Initiative – Healthcare. Developed a standardized shift-handoff process that reduced reporting errors. Implemented a checklist system and enabled clearer cross-team communication.',
+                        'Community Wellness Program – Outreach. Designed a free blood-pressure screening clinic. Enabled early detection for over 300 community members.'
+                    ],
+                    contacts: { email: 'morgan.davis@example.com', phone: '(617) 555-0164', city: 'Boston, MA', linkedin: 'linkedin.com/in/morgandavis', github: '', website: '', address: '' }
+                }
+            },
+            {
+                emoji: '📈', role: 'Financial Analyst',
+                data: {
+                    name: 'Sam Rivera',
+                    summary: 'Financial analyst with expertise in forecasting, valuation, and building models that guide executive decisions.',
+                    skills: ['Excel', 'Financial Modeling', 'SQL', 'Python', 'Forecasting', 'Communication', 'Problem Solving', 'Organization'],
+                    education: ['B.B.A. in Finance, University of Michigan — GPA: 3.8', 'Graduated May 2018', 'Relevant coursework: Corporate Finance, Econometrics, Accounting'],
+                    workExperience: [
+                        'Senior Financial Analyst — Goldman Sachs (2021–Present)',
+                        'Built valuation models supporting $500M in M&A transactions.',
+                        'Automated monthly forecasting in Excel, cutting close time by three days.',
+                        'Financial Analyst — Deloitte (2018–2021)',
+                        'Delivered client budgeting models and quarterly variance analysis.'
+                    ],
+                    projects: [
+                        'Portfolio Risk Model – Python. Developed a data analytics tool to measure portfolio risk. Built with Python and Excel. Implemented Monte Carlo simulation and designed scenario dashboards.',
+                        'Budget Forecast System – Excel. Developed a forecasting application for departmental budgets. Integrated historical trend analysis and enabled rolling 12-month projections.'
+                    ],
+                    contacts: { email: 'sam.rivera@example.com', phone: '(734) 555-0137', city: 'Ann Arbor, MI', linkedin: 'linkedin.com/in/samrivera', github: '', website: '', address: '' }
+                }
+            }
+        ];
+    }
+
     selectResume(index) {
         this.resumeData = this.currentUser.resumes[index].data;
         this.showSection('result-section');

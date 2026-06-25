@@ -455,3 +455,69 @@ input[type="password"]:focus {
         padding: 2rem 1.5rem;
     }
 }
+/* ---------- Demo mode ---------- */
+.demo-cta {
+    margin-top: 1.5rem;
+    text-align: center;
+}
+.demo-cta__divider {
+    position: relative;
+    text-align: center;
+    margin: 1.25rem 0;
+}
+.demo-cta__divider::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--border-color);
+}
+.demo-cta__divider span {
+    position: relative;
+    background: var(--white);
+    padding: 0 0.85rem;
+    color: var(--secondary-gray);
+    font-size: 0.85rem;
+}
+.demo-cta__btn {
+    width: 100%;
+}
+.demo-cta__hint {
+    margin-top: 0.6rem;
+    font-size: 0.82rem;
+    color: var(--secondary-gray);
+}
+
+.demo-resumes-block {
+    margin-bottom: 2.5rem;
+}
+.demo-resumes-sub {
+    color: var(--secondary-gray);
+    font-size: 0.9rem;
+    margin: -0.25rem 0 1.25rem;
+}
+.demo-resume-card {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    cursor: default;
+}
+.demo-resume-card:hover {
+    transform: translateY(-2px);
+}
+.demo-resume-emoji {
+    font-size: 2.25rem;
+    line-height: 1;
+    margin-bottom: 0.65rem;
+}
+.demo-resume-card .resume-card-content {
+    margin-bottom: 1rem;
+}
+.demo-resume-card .resume-card-actions {
+    margin-left: 0;
+}
+.demo-build-btn {
+    width: 100%;
+}
